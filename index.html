@@ -3,6 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="suin++">
+<meta name="theme-color" content="#ff79b0">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>suin++</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -209,22 +215,8 @@
     border-top: 1px solid var(--border);
   }
   .add-row.hidden { display: none; }
-  .add-icon {
-    width: 22px; height: 22px; border-radius: 50%;
-    border: 2px dashed var(--border);
-    display: flex; align-items: center; justify-content: center;
-    color: var(--sub); font-size: 14px; flex-shrink: 0;
-  }
-  .add-confirm {
-    display: none;
-    background: var(--accent); color: white;
-    border: none; border-radius: 8px;
-    font-size: 13px; font-weight: 600;
-    padding: 5px 12px; cursor: pointer;
-    font-family: inherit; letter-spacing: -0.05em;
-    flex-shrink: 0; white-space: nowrap;
-  }
-  .add-row:focus-within .add-confirm { display: block; }
+
+
   .add-input {
     flex: 1; border: none; outline: none;
     font-size: 14px; color: var(--text);
@@ -344,8 +336,7 @@
   <div class="card">
     <div id="promiseList"></div>
     <div class="add-row" id="promiseAddRow">
-      <div class="add-icon">+</div>
-      <input class="add-input" id="promiseInput" placeholder="나에게 약속하기..." /><button class="add-confirm" onclick="addPromise()">추가</button>
+      <input class="add-input" id="promiseInput" placeholder="나에게 약속하기..." />
     </div>
   </div>
 </section>
@@ -358,8 +349,7 @@
   <div class="card">
     <div id="habitList"></div>
     <div class="add-row" id="habitAddRow">
-      <div class="add-icon">+</div>
-      <input class="add-input" id="habitInput" placeholder="새 루틴 추가..." /><button class="add-confirm" onclick="addHabit()">추가</button>
+      <input class="add-input" id="habitInput" placeholder="새 루틴 추가..." />
     </div>
   </div>
 </section>
@@ -380,8 +370,7 @@
   <div class="card">
     <div id="learningList"></div>
     <div class="add-row" id="learningAddRow">
-      <div class="add-icon">+</div>
-      <input class="add-input" id="learningInput" placeholder="오늘 배운 내용 기록..." /><button class="add-confirm" onclick="addLearning()">추가</button>
+      <input class="add-input" id="learningInput" placeholder="오늘 배운 내용 기록..." />
     </div>
   </div>
 </section>
@@ -561,7 +550,7 @@ function renderPromises() {
     onclick="toggleDay('${p.id}')">
     <div class="drag-handle" onclick="event.stopPropagation()" ontouchstart="thStart(event,'${p.id}','promise')" ontouchend="thCancel()">⠿</div>
     <div class="check-box">${CHECK_SVG}</div>
-    <span class="item-text">${esc(p.text)}</span>
+    <span class="item-text" onclick="event.stopPropagation();editItem('promise','${p.id}',event)">${esc(p.text)}</span>
     <button class="delete-btn" onclick="event.stopPropagation();deleteDay('${p.id}')">×</button>
   </div>`).join('');
 }
@@ -626,7 +615,7 @@ function renderHabits() {
         onclick="toggleHabit('${h.id}')">
         <div class="drag-handle" onclick="event.stopPropagation()" ontouchstart="thStart(event,'${h.id}','habit')" ontouchend="thCancel()">⠿</div>
         <div class="check-box">${CHECK_SVG}</div>
-        <span class="item-text">${esc(h.text)}</span>
+        <span class="item-text" onclick="event.stopPropagation();editItem('habit','${h.id}',event)">${esc(h.text)}</span>
         ${streak>0?`<span class="streak-badge">🔥 ${streak}</span>`:''}
         <button class="delete-btn" onclick="event.stopPropagation();deleteHabit('${h.id}')">×</button>
       </div>`;
@@ -651,7 +640,7 @@ function addHabit() {
   const inp = document.getElementById('habitInput');
   const val = inp.value.trim(); if (!val) return;
   const habits = getHabits();
-  habits.push({id: Date.now().toString(), text: val});
+  habits.push({id: Date.now().toString(), text: val, created: TODAY});
   save('habits', habits);
   inp.value = '';
   renderHabits();
@@ -661,8 +650,15 @@ document.getElementById('habitInput').addEventListener('keydown', e => {
   addHabit();
 });
 
-// ── Streak Grid (최근 30일) ──
-const STREAK_DATES = Array.from({length:30}, (_,i) => addDays(TODAY, -29+i));
+// ── Streak Grid (생성일~오늘, 월간 초기화) ──
+function getMonthStreakDates(habit) {
+  const monthStart = TODAY.slice(0,7) + '-01';
+  const start = (habit.created && habit.created >= monthStart) ? habit.created : monthStart;
+  const dates = [];
+  let d = start;
+  while (d <= TODAY) { dates.push(d); d = addDays(d, 1); }
+  return dates;
+}
 function renderStreakGrid(habits, checks) {
   const grid = document.getElementById('streakGrid');
   if (!habits || habits.length === 0) {
@@ -671,9 +667,10 @@ function renderStreakGrid(habits, checks) {
   grid.innerHTML = habits.map(h => {
     const dates = checks[h.id] || [];
     const streak = getStreak(h.id, checks);
-    const dots = STREAK_DATES.map(d => {
+    const streakDates = getMonthStreakDates(h);
+    const dots = streakDates.map(d => {
       const filled = dates.includes(d);
-      const isCur = d === viewDate;
+      const isCur = d === TODAY;
       let cls = 'dot';
       if (filled && isCur) cls += ' current';
       else if (filled)     cls += ' filled';
@@ -882,6 +879,50 @@ function thEnd(e) {
   _td = {on:false, id:null, type:null, clone:null, timer:null, srcEl:null, offY:0};
 }
 function thCancel() { clearTimeout(_td.timer); }
+
+
+// ── Item Editing ──
+function editItem(type, id, e) {
+  const span = e.currentTarget;
+  const oldText = span.textContent;
+  const input = document.createElement('input');
+  input.value = oldText;
+  input.style.cssText = 'flex:1;border:none;outline:none;font-size:15px;font-family:inherit;background:transparent;letter-spacing:-0.05em;color:var(--text);min-width:0;';
+  span.replaceWith(input);
+  input.focus();
+  input.select();
+  let saved = false;
+  function saveEdit() {
+    if (saved) return; saved = true;
+    const newText = input.value.trim() || oldText;
+    if (type === 'promise') {
+      const arr = getDayPromises(viewDate);
+      const it = arr.find(x => x.id === id);
+      if (it) { it.text = newText; save('promises_' + viewDate, arr); }
+      renderPromises();
+    } else if (type === 'habit') {
+      const arr = getHabits();
+      const it = arr.find(x => x.id === id);
+      if (it) { it.text = newText; save('habits', arr); }
+      renderHabits();
+    } else if (type === 'learning') {
+      const arr = getLearnings();
+      const it = arr.find(x => x.id === id);
+      if (it) { it.text = newText; save('learnings', arr); }
+      renderLearnings();
+    }
+  }
+  input.addEventListener('blur', saveEdit);
+  input.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter' && !ev.isComposing) { input.blur(); }
+    if (ev.key === 'Escape') { saved = true; input.value = oldText; input.blur(); if (type==='promise') renderPromises(); else if(type==='habit') renderHabits(); else renderLearnings(); }
+  });
+}
+
+// ── PWA Service Worker ──
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
 
 </script>
 </body>
