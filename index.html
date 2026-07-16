@@ -110,7 +110,7 @@
   .day-cell.selected .day-num { color: white; }
   .day-cell.is-today:not(.selected) .day-num { color: var(--accent); }
   .day-cell.future .day-name,
-  .day-cell.future .day-num { color: #ddd; }
+  .day-cell.future .day-num { color: #bbb; }
   .day-dot {
     width: 5px; height: 5px;
     border-radius: 50%;
@@ -285,20 +285,14 @@
   .pip-label { font-size: 10px; color: var(--sub); }
 
 
-  /* ── Drag Reorder ── */
-  .drag-handle {
-    color: #d0d0d0;
-    font-size: 14px;
-    cursor: grab;
-    flex-shrink: 0;
-    user-select: none;
-    touch-action: none;
-    padding: 0 2px;
-    line-height: 1;
-    letter-spacing: 1px;
+  /* ── Reorder Buttons ── */
+  .reorder-btns { display: flex; flex-direction: column; gap: 0; flex-shrink: 0; }
+  .reorder-btn {
+    background: none; border: none; cursor: pointer;
+    color: #d8d8d8; font-size: 12px; padding: 1px 4px;
+    line-height: 1.2; transition: color 0.15s; font-family: inherit;
   }
-  .drag-handle:active { cursor: grabbing; }
-  .item.dragging { opacity: 0.35; }
+  .reorder-btn:hover, .reorder-btn:active { color: var(--accent); }
   .item.drag-over { box-shadow: inset 0 2px 0 var(--accent); }
 
 </style>
@@ -462,7 +456,7 @@ function renderWeekStrip() {
 
   // Prev/next arrows
   document.getElementById('prevWeek').disabled = false;
-  document.getElementById('nextWeek').disabled = weekStart >= getMondayOfWeek(TODAY);
+  document.getElementById('nextWeek').disabled = false;
 
   const container = document.getElementById('weekDays');
   container.innerHTML = dates.map(ds => {
@@ -497,9 +491,7 @@ document.getElementById('prevWeek').addEventListener('click', () => {
   renderAll();
 });
 document.getElementById('nextWeek').addEventListener('click', () => {
-  const nextWeek = addDays(weekStart, 7);
-  if (nextWeek > getMondayOfWeek(TODAY)) return;
-  weekStart = nextWeek;
+  weekStart = addDays(weekStart, 7);
   renderAll();
 });
 
@@ -541,14 +533,11 @@ function renderPromises() {
   const list = document.getElementById('promiseList');
   if (dayP.length === 0) { list.innerHTML = '<div class="empty">no promises yet.</div>'; return; }
   list.innerHTML = dayP.map(p => `<div class="item ${p.done?'done':''}" data-id="${p.id}"
-    draggable="true"
-    ondragstart="dragStart(event,'${p.id}','promise')"
-    ondragend="dragEnd(event)"
-    ondragover="dragOver(event)"
-    ondragleave="dragLeave(event)"
-    ondrop="drop(event,'${p.id}','promise')"
     onclick="toggleDay('${p.id}')">
-    <div class="drag-handle" onclick="event.stopPropagation()" ontouchstart="thStart(event,'${p.id}','promise')" ontouchend="thCancel()">⠿</div>
+    <div class="reorder-btns" onclick="event.stopPropagation()">
+      <button class="reorder-btn" onclick="event.stopPropagation();moveItem('promise','${p.id}',-1)">▲</button>
+      <button class="reorder-btn" onclick="event.stopPropagation();moveItem('promise','${p.id}',1)">▼</button>
+    </div>
     <div class="check-box">${CHECK_SVG}</div>
     <span class="item-text" onclick="event.stopPropagation();editItem('promise','${p.id}',event)">${esc(p.text)}</span>
     <button class="delete-btn" onclick="event.stopPropagation();deleteDay('${p.id}')">×</button>
@@ -606,14 +595,11 @@ function renderHabits() {
       const isDone = (checks[h.id]||[]).includes(viewDate);
       const streak = getStreak(h.id, checks);
       return `<div class="item ${isDone?'done':''}" data-id="${h.id}"
-        draggable="true"
-        ondragstart="dragStart(event,'${h.id}','habit')"
-        ondragend="dragEnd(event)"
-        ondragover="dragOver(event)"
-        ondragleave="dragLeave(event)"
-        ondrop="drop(event,'${h.id}','habit')"
         onclick="toggleHabit('${h.id}')">
-        <div class="drag-handle" onclick="event.stopPropagation()" ontouchstart="thStart(event,'${h.id}','habit')" ontouchend="thCancel()">⠿</div>
+        <div class="reorder-btns" onclick="event.stopPropagation()">
+          <button class="reorder-btn" onclick="event.stopPropagation();moveItem('habit','${h.id}',-1)">▲</button>
+          <button class="reorder-btn" onclick="event.stopPropagation();moveItem('habit','${h.id}',1)">▼</button>
+        </div>
         <div class="check-box">${CHECK_SVG}</div>
         <span class="item-text" onclick="event.stopPropagation();editItem('habit','${h.id}',event)">${esc(h.text)}</span>
         ${streak>0?`<span class="streak-badge">🔥 ${streak}</span>`:''}
@@ -799,86 +785,22 @@ document.getElementById('learningInput').addEventListener('keydown', e => {
 initMoodCats();
 renderAll();
 
-// ── Drag & Touch Reorder ──
-let _dragSrc = null, _dragType = null;
-let _td = {on:false, id:null, type:null, clone:null, timer:null, srcEl:null, offY:0};
-
-function dragStart(e, id, type) {
-  _dragSrc = id; _dragType = type;
-  e.dataTransfer.effectAllowed = 'move';
-  requestAnimationFrame(() => e.currentTarget.classList.add('dragging'));
-}
-function dragEnd(e) { e.currentTarget.classList.remove('dragging'); _dragSrc = null; }
-function dragOver(e) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
-function dragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
-function drop(e, toId, type) {
-  e.preventDefault();
-  e.currentTarget.classList.remove('drag-over');
-  if (!_dragSrc || _dragSrc === toId || _dragType !== type) return;
-  _reorder(type, _dragSrc, toId);
-}
-function _reorder(type, fromId, toId) {
+// ── Reorder ──
+function moveItem(type, id, dir) {
   if (type === 'promise') {
     const arr = getDayPromises(viewDate);
-    const fi = arr.findIndex(x => x.id === fromId), ti = arr.findIndex(x => x.id === toId);
-    if (fi < 0 || ti < 0) return;
-    arr.splice(ti, 0, arr.splice(fi, 1)[0]);
+    const i = arr.findIndex(x => x.id === id), j = i + dir;
+    if (i < 0 || j < 0 || j >= arr.length) return;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
     save('promises_' + viewDate, arr); renderPromises();
   } else {
     const arr = getHabits();
-    const fi = arr.findIndex(x => x.id === fromId), ti = arr.findIndex(x => x.id === toId);
-    if (fi < 0 || ti < 0) return;
-    arr.splice(ti, 0, arr.splice(fi, 1)[0]);
+    const i = arr.findIndex(x => x.id === id), j = i + dir;
+    if (i < 0 || j < 0 || j >= arr.length) return;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
     save('habits', arr); renderHabits();
   }
 }
-// Touch long-press drag
-function thStart(e, id, type) {
-  e.stopPropagation();
-  _td.timer = setTimeout(() => {
-    _td.on = true; _td.id = id; _td.type = type;
-    const item = e.currentTarget.closest('.item');
-    _td.srcEl = item;
-    const r = item.getBoundingClientRect();
-    const tc = e.touches[0];
-    const cl = item.cloneNode(true);
-    cl.style.cssText = `position:fixed;left:${r.left}px;top:${r.top}px;width:${r.width}px;opacity:0.88;z-index:999;box-shadow:0 8px 32px rgba(0,0,0,0.18);pointer-events:none;border-radius:12px;background:white;`;
-    document.body.appendChild(cl);
-    _td.clone = cl; _td.offY = tc.clientY - r.top;
-    item.style.opacity = '0.3';
-    navigator.vibrate && navigator.vibrate(40);
-    document.addEventListener('touchmove', thMove, {passive: false});
-    document.addEventListener('touchend', thEnd);
-    document.addEventListener('touchcancel', thEnd);
-  }, 450);
-}
-function thMove(e) {
-  if (!_td.on) return;
-  e.preventDefault();
-  const tc = e.touches[0];
-  _td.clone.style.top = (tc.clientY - _td.offY) + 'px';
-  document.querySelectorAll('.item.drag-over').forEach(el => el.classList.remove('drag-over'));
-  _td.clone.style.pointerEvents = 'none';
-  const el = document.elementFromPoint(tc.clientX, tc.clientY);
-  const tgt = el && el.closest('.item[data-id]');
-  if (tgt && tgt.dataset.id !== _td.id) tgt.classList.add('drag-over');
-}
-function thEnd(e) {
-  clearTimeout(_td.timer);
-  document.removeEventListener('touchmove', thMove);
-  document.removeEventListener('touchend', thEnd);
-  document.removeEventListener('touchcancel', thEnd);
-  if (!_td.on) { _td = {on:false,id:null,type:null,clone:null,timer:null,srcEl:null,offY:0}; return; }
-  const tc = e.changedTouches[0];
-  _td.clone && _td.clone.remove();
-  _td.srcEl && (_td.srcEl.style.opacity = '');
-  document.querySelectorAll('.item.drag-over').forEach(el => el.classList.remove('drag-over'));
-  const el = document.elementFromPoint(tc.clientX, tc.clientY);
-  const tgt = el && el.closest('.item[data-id]');
-  if (tgt && tgt.dataset.id !== _td.id) _reorder(_td.type, _td.id, tgt.dataset.id);
-  _td = {on:false, id:null, type:null, clone:null, timer:null, srcEl:null, offY:0};
-}
-function thCancel() { clearTimeout(_td.timer); }
 
 
 // ── Item Editing ──
