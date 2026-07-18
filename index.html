@@ -1062,6 +1062,14 @@ async function pushAll() {
   } catch(e) { console.error('push error',e); setSyncDot(''); }
 }
 
+// local wins on id conflicts, so an unsynced local edit never gets clobbered by a pull
+function mergeArrayById(serverArr, localArr) {
+  const map = new Map();
+  (serverArr||[]).forEach(item => map.set(item.id, item));
+  (localArr||[]).forEach(item => map.set(item.id, item));
+  return Array.from(map.values());
+}
+
 async function pullAll() {
   if (!currentUser) return;
   const uid = currentUser.id;
@@ -1075,22 +1083,39 @@ async function pullAll() {
       sbGet('profiles',{user_id:uid}),
     ]);
 
-    if (habits?.length) localStorage.setItem('habits', JSON.stringify(habits.map(h=>{return {id:h.id,text:h.text,created:h.created}})));
-    if (checkRows?.length) {
-      const checks={};
-      checkRows.forEach(r=>{ if(!checks[r.habit_id])checks[r.habit_id]=[]; checks[r.habit_id].push(r.date); });
-      localStorage.setItem('checks',JSON.stringify(checks));
+    const serverHabits = (habits||[]).map(h=>({id:h.id,text:h.text,created:h.created}));
+    localStorage.setItem('habits', JSON.stringify(mergeArrayById(serverHabits, getHabits())));
+
+    const serverChecks = {};
+    (checkRows||[]).forEach(r=>{ if(!serverChecks[r.habit_id]) serverChecks[r.habit_id]=[]; serverChecks[r.habit_id].push(r.date); });
+    const localChecks = getHabitChecks();
+    const mergedChecks = {};
+    new Set([...Object.keys(serverChecks), ...Object.keys(localChecks)]).forEach(id=>{
+      mergedChecks[id] = Array.from(new Set([...(serverChecks[id]||[]), ...(localChecks[id]||[])]));
+    });
+    localStorage.setItem('checks', JSON.stringify(mergedChecks));
+
+    const serverByDate = {};
+    (promises||[]).forEach(p=>{ if(!serverByDate[p.date]) serverByDate[p.date]=[]; serverByDate[p.date].push({id:p.id,text:p.text,done:p.done}); });
+    Object.keys(serverByDate).forEach(d=>{
+      localStorage.setItem('promises_'+d, JSON.stringify(mergeArrayById(serverByDate[d], getDayPromises(d))));
+    });
+
+    (moods||[]).forEach(m=>{
+      const key = 'mood_'+m.date;
+      if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({emoji:m.emoji, note:m.note}));
+    });
+
+    const serverLearnings = (learnings||[]).map(l=>({id:l.id,text:l.text,date:l.date,done:l.done}));
+    localStorage.setItem('learnings', JSON.stringify(mergeArrayById(serverLearnings, getLearnings())));
+
+    if (profiles?.length && profiles[0].username && !localStorage.getItem('username')) {
+      localStorage.setItem('username', profiles[0].username);
+      applyNickname(profiles[0].username);
     }
-    if (promises?.length) {
-      const byDate={};
-      promises.forEach(p=>{ if(!byDate[p.date])byDate[p.date]=[]; byDate[p.date].push({id:p.id,text:p.text,done:p.done}); });
-      Object.entries(byDate).forEach(([d,ps])=>localStorage.setItem('promises_'+d,JSON.stringify(ps)));
-    }
-    if (moods?.length) moods.forEach(m=>localStorage.setItem('mood_'+m.date,JSON.stringify({emoji:m.emoji,note:m.note})));
-    if (learnings?.length) localStorage.setItem('learnings',JSON.stringify(learnings.map(l=>{return {id:l.id,text:l.text,date:l.date,done:l.done}})));
-    if (profiles?.length && profiles[0].username) { localStorage.setItem('username',profiles[0].username); applyNickname(profiles[0].username); }
 
     setSyncDot('synced'); renderAll();
+    schedulePush();
   } catch(e) { console.error('pull error',e); }
 }
 
