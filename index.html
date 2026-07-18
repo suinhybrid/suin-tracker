@@ -9,24 +9,48 @@
 <meta name="theme-color" content="#ff79b0">
 <link rel="manifest" href="manifest.json">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
-// ── Supabase ──
+// ── Supabase (fetch-based, no SDK) ──
 const SUPA_URL = 'https://hoqzejyqtoaegmuktmam.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvcXplanlxdG9hZWdtdWt0bWFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQzNzMwNzAsImV4cCI6MjA5OTk0OTA3MH0.ZxR2pSBoUSLbF7iCE8drkglPm1br7W2A6buMio8gvJA';
-let _sb = null;
-function getSB() {
-  if (!_sb) _sb = supabase.createClient(SUPA_URL, SUPA_KEY);
-  return _sb;
-}
-
-let currentUser = null;
-let _syncTimer = null;
-let _authStep = 'email'; // 'email' | 'otp'
-let _authEmail = '';
+let _token = null, _refreshToken = null, currentUser = null;
+let _syncTimer = null, _authStep = 'email', _authEmail = '';
 
 function setSyncDot(state) {
   const dot = document.getElementById('syncDot');
   if (!dot) return;
-  dot.className = 'sync-dot' + (state === 'synced' ? ' synced' : state === 'syncing' ? ' syncing' : '');
+  dot.className = 'sync-dot' + (state==='synced'?' synced':state==='syncing'?' syncing':'');
+}
+
+function getHeaders(extra) {
+  return Object.assign({
+    'apikey': SUPA_KEY,
+    'Authorization': 'Bearer ' + (_token || SUPA_KEY),
+    'Content-Type': 'application/json'
+  }, extra||{});
+}
+
+async function sbFetch(path, opts) {
+  const r = await fetch(SUPA_URL + path, Object.assign({headers: getHeaders()}, opts));
+  const text = await r.text();
+  try { return JSON.parse(text); } catch { return text; }
+}
+
+async function sbGet(table, filter) {
+  const q = Object.entries(filter||{}).map(([k,v])=>k+'=eq.'+encodeURIComponent(v)).join('&');
+  return sbFetch('/rest/v1/'+table+(q?'?'+q:''), {headers: getHeaders()});
+}
+
+async function sbUpsert(table, rows) {
+  if (!rows||!rows.length) return;
+  return sbFetch('/rest/v1/'+table, {
+    method:'POST', headers: getHeaders({'Prefer':'resolution=merge-duplicates'}),
+    body: JSON.stringify(rows)
+  });
+}
+
+async function sbDelete(table, filter) {
+  const q = Object.entries(filter).map(([k,v])=>k+'=eq.'+encodeURIComponent(v)).join('&');
+  return sbFetch('/rest/v1/'+table+'?'+q, {method:'DELETE', headers: getHeaders()});
 }
 
 function schedulePush() {
@@ -39,100 +63,105 @@ function schedulePush() {
 async function pushAll() {
   if (!currentUser) return;
   const uid = currentUser.id;
-  const sb = getSB();
   try {
     const habits = getHabits();
+    if (habits.length) await sbUpsert('habits', habits.map(h=>({user_id:uid,id:h.id,text:h.text,created:h.created||null})));
+
     const checks = getHabitChecks();
-    const learnings = getLearnings();
-
-    if (habits.length > 0)
-      await sb.from('habits').upsert(habits.map(h => ({user_id:uid, id:h.id, text:h.text, created:h.created||null})));
-
     const checkRows = [];
-    Object.entries(checks).forEach(([hid, dates]) => dates.forEach(d => checkRows.push({user_id:uid, habit_id:hid, date:d})));
-    if (checkRows.length > 0) await sb.from('habit_checks').upsert(checkRows);
+    Object.entries(checks).forEach(([hid,dates])=>dates.forEach(d=>checkRows.push({user_id:uid,habit_id:hid,date:d})));
+    if (checkRows.length) await sbUpsert('habit_checks', checkRows);
 
     const promiseRows = [];
-    for (let i=0; i<localStorage.length; i++) {
-      const key = localStorage.key(i);
+    for (let i=0;i<localStorage.length;i++) {
+      const key=localStorage.key(i);
       if (!key.startsWith('promises_')) continue;
-      const date = key.replace('promises_','');
-      load(key,[]).forEach(p => promiseRows.push({user_id:uid, id:p.id, date, text:p.text, done:p.done}));
+      const date=key.replace('promises_','');
+      load(key,[]).forEach(p=>promiseRows.push({user_id:uid,id:p.id,date,text:p.text,done:p.done}));
     }
-    if (promiseRows.length > 0) await sb.from('promises').upsert(promiseRows);
+    if (promiseRows.length) await sbUpsert('promises', promiseRows);
 
-    const moodRows = [];
-    for (let i=0; i<localStorage.length; i++) {
-      const key = localStorage.key(i);
+    const moodRows=[];
+    for (let i=0;i<localStorage.length;i++) {
+      const key=localStorage.key(i);
       if (!key.startsWith('mood_')) continue;
-      const date = key.replace('mood_','');
-      const m = load(key, {});
-      if (m.emoji || m.note) moodRows.push({user_id:uid, date, emoji:m.emoji||'', note:m.note||''});
+      const date=key.replace('mood_','');
+      const m=load(key,{});
+      if (m.emoji||m.note) moodRows.push({user_id:uid,date,emoji:m.emoji||'',note:m.note||''});
     }
-    if (moodRows.length > 0) await sb.from('moods').upsert(moodRows);
+    if (moodRows.length) await sbUpsert('moods', moodRows);
 
-    if (learnings.length > 0)
-      await sb.from('learnings').upsert(learnings.map(l => ({user_id:uid, id:l.id, text:l.text, date:l.date, done:l.done})));
+    const learnings=getLearnings();
+    if (learnings.length) await sbUpsert('learnings', learnings.map(l=>({user_id:uid,id:l.id,text:l.text,date:l.date,done:l.done})));
 
-    const username = localStorage.getItem('username');
-    if (username) await sb.from('profiles').upsert({user_id:uid, username});
+    const username=localStorage.getItem('username');
+    if (username) await sbUpsert('profiles', [{user_id:uid,username}]);
 
     setSyncDot('synced');
-  } catch(e) { console.error('push error', e); setSyncDot(''); }
+  } catch(e) { console.error('push error',e); setSyncDot(''); }
 }
 
 async function pullAll() {
   if (!currentUser) return;
   const uid = currentUser.id;
-  const sb = getSB();
   try {
-    const [{data:habits}, {data:checkRows}, {data:promises}, {data:moods}, {data:learnings}, {data:profile}] = await Promise.all([
-      sb.from('habits').select('*').eq('user_id', uid),
-      sb.from('habit_checks').select('*').eq('user_id', uid),
-      sb.from('promises').select('*').eq('user_id', uid),
-      sb.from('moods').select('*').eq('user_id', uid),
-      sb.from('learnings').select('*').eq('user_id', uid),
-      sb.from('profiles').select('username').eq('user_id', uid).single(),
+    const [habits, checkRows, promises, moods, learnings, profiles] = await Promise.all([
+      sbGet('habits',{user_id:uid}),
+      sbGet('habit_checks',{user_id:uid}),
+      sbGet('promises',{user_id:uid}),
+      sbGet('moods',{user_id:uid}),
+      sbGet('learnings',{user_id:uid}),
+      sbGet('profiles',{user_id:uid}),
     ]);
 
-    if (habits?.length) localStorage.setItem('habits', JSON.stringify(habits.map(h => ({id:h.id, text:h.text, created:h.created}))));
+    if (habits?.length) localStorage.setItem('habits', JSON.stringify(habits.map(h=>{return {id:h.id,text:h.text,created:h.created}})));
     if (checkRows?.length) {
-      const checks = {};
-      checkRows.forEach(r => { if (!checks[r.habit_id]) checks[r.habit_id]=[]; checks[r.habit_id].push(r.date); });
-      localStorage.setItem('checks', JSON.stringify(checks));
+      const checks={};
+      checkRows.forEach(r=>{ if(!checks[r.habit_id])checks[r.habit_id]=[]; checks[r.habit_id].push(r.date); });
+      localStorage.setItem('checks',JSON.stringify(checks));
     }
     if (promises?.length) {
-      const byDate = {};
-      promises.forEach(p => { if (!byDate[p.date]) byDate[p.date]=[]; byDate[p.date].push({id:p.id, text:p.text, done:p.done}); });
-      Object.entries(byDate).forEach(([d,ps]) => localStorage.setItem('promises_'+d, JSON.stringify(ps)));
+      const byDate={};
+      promises.forEach(p=>{ if(!byDate[p.date])byDate[p.date]=[]; byDate[p.date].push({id:p.id,text:p.text,done:p.done}); });
+      Object.entries(byDate).forEach(([d,ps])=>localStorage.setItem('promises_'+d,JSON.stringify(ps)));
     }
-    if (moods?.length) moods.forEach(m => localStorage.setItem('mood_'+m.date, JSON.stringify({emoji:m.emoji, note:m.note})));
-    if (learnings?.length) localStorage.setItem('learnings', JSON.stringify(learnings.map(l => ({id:l.id, text:l.text, date:l.date, done:l.done}))));
-    if (profile?.username) { localStorage.setItem('username', profile.username); applyNickname(profile.username); }
+    if (moods?.length) moods.forEach(m=>localStorage.setItem('mood_'+m.date,JSON.stringify({emoji:m.emoji,note:m.note})));
+    if (learnings?.length) localStorage.setItem('learnings',JSON.stringify(learnings.map(l=>{return {id:l.id,text:l.text,date:l.date,done:l.done}})));
+    if (profiles?.length && profiles[0].username) { localStorage.setItem('username',profiles[0].username); applyNickname(profiles[0].username); }
 
-    setSyncDot('synced');
-    renderAll();
-  } catch(e) { console.error('pull error', e); }
+    setSyncDot('synced'); renderAll();
+  } catch(e) { console.error('pull error',e); }
 }
 
-// Auth
+async function saveSession(data) {
+  _token = data.access_token;
+  _refreshToken = data.refresh_token;
+  currentUser = data.user;
+  localStorage.setItem('sb_token', _token);
+  localStorage.setItem('sb_refresh', _refreshToken);
+  localStorage.setItem('sb_user', JSON.stringify(currentUser));
+}
+
+async function tryRestoreSession() {
+  const t = localStorage.getItem('sb_token');
+  const u = localStorage.getItem('sb_user');
+  if (!t || !u) return false;
+  _token = t;
+  currentUser = JSON.parse(u);
+  return true;
+}
+
 async function checkAuth() {
-  const sb = getSB();
-  const { data: { session } } = await sb.auth.getSession();
-  if (session) {
-    currentUser = session.user;
+  const ok = await tryRestoreSession();
+  if (ok) {
     document.getElementById('authScreen').classList.add('hidden');
     await pullAll();
   } else {
     document.getElementById('authScreen').classList.remove('hidden');
   }
-  // Set logo
-  const logo = document.getElementById('authLogo');
-  // use first cat image if available
 }
 
 async function handleAuth() {
-  const sb = getSB();
   const msg = document.getElementById('authMsg');
   const btn = document.getElementById('authBtn');
 
@@ -141,54 +170,54 @@ async function handleAuth() {
     if (!email) return;
     _authEmail = email;
     btn.textContent = '전송 중...'; btn.disabled = true;
-    const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+    const res = await sbFetch('/auth/v1/otp', {
+      method:'POST', headers:{'apikey':SUPA_KEY,'Content-Type':'application/json'},
+      body: JSON.stringify({email, create_user:true})
+    });
     btn.disabled = false;
-    if (error) { msg.textContent = '오류: ' + error.message; btn.textContent = '코드 받기'; return; }
+    if (res && res.error) { msg.textContent = '오류: '+res.error.message; btn.textContent='코드 받기'; return; }
     msg.textContent = '📧 ' + email + '로 코드를 보냈어!';
     document.getElementById('otpSection').style.display = 'block';
     document.getElementById('authEmail').style.display = 'none';
-    btn.textContent = '확인';
-    _authStep = 'otp';
+    btn.textContent = '확인'; _authStep = 'otp';
   } else {
     const token = document.getElementById('authOTP').value.trim();
     if (!token) return;
     btn.textContent = '확인 중...'; btn.disabled = true;
-    const { data, error } = await sb.auth.verifyOtp({ email: _authEmail, token, type: 'email' });
+    const res = await sbFetch('/auth/v1/verify', {
+      method:'POST', headers:{'apikey':SUPA_KEY,'Content-Type':'application/json'},
+      body: JSON.stringify({type:'email', email:_authEmail, token})
+    });
     btn.disabled = false;
-    if (error) { msg.textContent = '코드가 틀렸어요. 다시 확인해줘!'; btn.textContent = '확인'; return; }
-    currentUser = data.user;
+    if (!res || !res.access_token) { msg.textContent = '코드가 틀렸어요!'; btn.textContent='확인'; return; }
+    await saveSession(res);
     document.getElementById('authScreen').classList.add('hidden');
-    await pullAll();
-    setSyncDot('synced');
+    await pullAll(); setSyncDot('synced');
   }
 }
 
-document.getElementById('authEmail').addEventListener('keydown', e => { if (e.key==='Enter') handleAuth(); });
-document.getElementById('authOTP').addEventListener('keydown', e => { if (e.key==='Enter') handleAuth(); });
+document.getElementById('authEmail').addEventListener('keydown', e=>{ if(e.key==='Enter')handleAuth(); });
+document.getElementById('authOTP').addEventListener('keydown', e=>{ if(e.key==='Enter')handleAuth(); });
 
-// Override delete functions to also delete from Supabase
-const _origDeleteHabit = deleteHabit;
+// Override deletes to sync
+const _origDelH = window.deleteHabit;
 window.deleteHabit = async function(id) {
-  const arr = getHabits().filter(x => x.id !== id);
-  localStorage.setItem('habits', JSON.stringify(arr));
+  localStorage.setItem('habits', JSON.stringify(getHabits().filter(x=>x.id!==id)));
   renderHabits();
   if (currentUser) {
-    const sb = getSB(), uid = currentUser.id;
-    await sb.from('habits').delete().eq('user_id', uid).eq('id', id);
-    await sb.from('habit_checks').delete().eq('user_id', uid).eq('habit_id', id);
+    await sbDelete('habits', {user_id:currentUser.id, id});
+    await sbDelete('habit_checks', {user_id:currentUser.id, habit_id:id});
   }
 };
 
-const _origDeleteDay = deleteDay;
 window.deleteDay = async function(id) {
   localStorage.setItem('promises_'+viewDate, JSON.stringify(getDayPromises(viewDate).filter(x=>x.id!==id)));
   renderPromises();
-  if (currentUser) {
-    await getSB().from('promises').delete().eq('user_id', currentUser.id).eq('id', id);
-  }
+  if (currentUser) await sbDelete('promises', {user_id:currentUser.id, id});
 };
 
 checkAuth();
+
 
 </script>
 <link rel="apple-touch-icon" href="icon-192.png">
