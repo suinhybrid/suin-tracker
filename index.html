@@ -167,16 +167,23 @@ async function handleAuth() {
 
   if (_authStep === 'email') {
     const email = document.getElementById('authEmail').value.trim();
-    if (!email) return;
+    if (!email) { msg.textContent = '이메일을 입력해줘!'; return; }
     _authEmail = email;
+    msg.textContent = '전송 중...';
     btn.textContent = '전송 중...'; btn.disabled = true;
-    const res = await sbFetch('/auth/v1/otp', {
-      method:'POST', headers:{'apikey':SUPA_KEY,'Content-Type':'application/json'},
-      body: JSON.stringify({email, create_user:true})
-    });
+    let res;
+    try {
+      res = await sbFetch('/auth/v1/otp', {
+        method:'POST', headers:{'apikey':SUPA_KEY,'Content-Type':'application/json'},
+        body: JSON.stringify({email, create_user:true})
+      });
+    } catch(e) {
+      btn.disabled = false; btn.textContent='코드 받기';
+      msg.textContent = '네트워크 오류: ' + e.message; return;
+    }
     btn.disabled = false;
-    if (res && res.error) { msg.textContent = '오류: '+res.error.message; btn.textContent='코드 받기'; return; }
-    msg.textContent = '📧 ' + email + '로 코드를 보냈어!';
+    if (res && res.error) { msg.textContent = '오류: '+JSON.stringify(res.error); btn.textContent='코드 받기'; return; }
+    msg.textContent = '📧 ' + email + '로 코드를 보냈어! 스팸함도 확인해봐.';
     document.getElementById('otpSection').style.display = 'block';
     document.getElementById('authEmail').style.display = 'none';
     btn.textContent = '확인'; _authStep = 'otp';
