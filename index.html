@@ -186,6 +186,8 @@
   .item:last-of-type { border-bottom: none; }
   .item.done .item-text { text-decoration: line-through; color: #bbb; }
   .item.done { background: #fafafa; }
+  .item.no-toggle { cursor: default; }
+  .item.no-toggle .check-box { opacity: 0.4; }
   .check-box {
     width: 22px; height: 22px; border-radius: 50%;
     border: 2px solid var(--border); flex-shrink: 0;
@@ -224,6 +226,9 @@
     font-family: inherit; background: transparent;
   }
   .add-input::placeholder { color: #ccc; }
+  .add-input:disabled { color: #ccc; cursor: not-allowed; }
+  .mood-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .mood-note:disabled { color: #ccc; cursor: not-allowed; }
 
   /* ── Streak Grid ── */
   .streak-grid-wrap { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 16px 18px; }
@@ -522,6 +527,11 @@ function getWeekDates(weekStart) {
 let viewDate = TODAY;
 let weekStart = getMondayOfWeek(TODAY);
 
+// 계획을 위해 오늘/내일만 수정 가능, 그 외 날짜는 조회만
+function isEditableDay(ds) {
+  return ds === TODAY || ds === addDays(TODAY, 1);
+}
+
 // ── Data accessors ──
 const getDayPromises   = d => load('promises_' + d, []);
 const getMood          = d => load('mood_' + d, {emoji:'', note:''});
@@ -589,6 +599,7 @@ document.getElementById('nextWeek').addEventListener('click', () => {
 
 // ── Mood ──
 function clickMood(m) {
+  if (!isEditableDay(viewDate)) return;
   const mood = getMood(viewDate);
   mood.emoji = mood.emoji === m ? '' : m;
   save('mood_' + viewDate, mood);
@@ -596,13 +607,15 @@ function clickMood(m) {
 }
 function renderMood() {
   const mood = getMood(viewDate);
-  const isPast = viewDate < TODAY;
+  const editable = isEditableDay(viewDate);
   document.querySelectorAll('.mood-btn').forEach(btn => {
     btn.classList.toggle('selected', btn.dataset.mood === mood.emoji);
-
+    btn.disabled = !editable;
   });
   const note = document.getElementById('moodNote');
   note.value = mood.note || '';
+  note.disabled = !editable;
+  note.placeholder = editable ? '한 줄 메모...' : '지난 기록은 수정할 수 없어요';
   setTimeout(() => autoResize(note), 0);
 }
 function autoResize(el) {
@@ -611,6 +624,7 @@ function autoResize(el) {
 }
 document.getElementById('moodNote').addEventListener('input', e => {
   autoResize(e.target);
+  if (!isEditableDay(viewDate)) return;
   const mood = getMood(viewDate); mood.note = e.target.value;
   save('mood_' + viewDate, mood);
 });
@@ -618,14 +632,18 @@ document.getElementById('moodNote').addEventListener('input', e => {
 // ── Promises ──
 function renderPromises() {
   const dayP = getDayPromises(viewDate);
-  const isPast = viewDate < TODAY;
+  const editable = isEditableDay(viewDate);
   const done = dayP.filter(p => p.done).length;
   document.getElementById('promiseProgress').textContent = dayP.length ? `${done} / ${dayP.length}` : '';
 
+  const inp = document.getElementById('promiseInput');
+  inp.disabled = !editable;
+  inp.placeholder = editable ? '나에게 약속하기...' : '지난 기록은 수정할 수 없어요';
+
   const list = document.getElementById('promiseList');
   if (dayP.length === 0) { list.innerHTML = '<div class="empty">no promises yet.</div>'; return; }
-  list.innerHTML = dayP.map(p => `<div class="item ${p.done?'done':''}" data-id="${p.id}"
-    onclick="toggleDay('${p.id}')">
+  list.innerHTML = dayP.map(p => `<div class="item ${p.done?'done':''} ${editable?'':'no-toggle'}" data-id="${p.id}"
+    ${editable?`onclick="toggleDay('${p.id}')"`:''}>
     <div class="reorder-btns" onclick="event.stopPropagation()">
       <button class="reorder-btn" onclick="event.stopPropagation();moveItem('promise','${p.id}',-1)">▲</button>
       <button class="reorder-btn" onclick="event.stopPropagation();moveItem('promise','${p.id}',1)">▼</button>
@@ -637,17 +655,20 @@ function renderPromises() {
 }
 
 function toggleDay(id) {
+  if (!isEditableDay(viewDate)) return;
   const dp = getDayPromises(viewDate);
   const p = dp.find(x => x.id === id);
   if (p) { p.done = !p.done; save('promises_' + viewDate, dp); renderPromises(); renderWeekStrip(); }
 }
 function deleteDay(id) {
+  if (!isEditableDay(viewDate)) return;
   save('promises_' + viewDate, getDayPromises(viewDate).filter(x => x.id !== id));
   renderPromises();
 }
 
 
 function addPromise() {
+  if (!isEditableDay(viewDate)) return;
   const inp = document.getElementById('promiseInput');
   const val = inp.value.trim(); if (!val) return;
   const dp = getDayPromises(viewDate);
@@ -676,7 +697,7 @@ function getStreak(id, checks) {
 function renderHabits() {
   const habits = getHabits();
   const checks = getHabitChecks();
-  const isPast = viewDate < TODAY;
+  const editable = isEditableDay(viewDate);
   const done = habits.filter(h => (checks[h.id]||[]).includes(viewDate)).length;
   document.getElementById('habitProgress').textContent = habits.length ? `${done} / ${habits.length}` : '';
 
@@ -686,8 +707,8 @@ function renderHabits() {
     list.innerHTML = habits.map(h => {
       const isDone = (checks[h.id]||[]).includes(viewDate);
       const streak = getStreak(h.id, checks);
-      return `<div class="item ${isDone?'done':''}" data-id="${h.id}"
-        onclick="toggleHabit('${h.id}')">
+      return `<div class="item ${isDone?'done':''} ${editable?'':'no-toggle'}" data-id="${h.id}"
+        ${editable?`onclick="toggleHabit('${h.id}')"`:''}>
         <div class="reorder-btns" onclick="event.stopPropagation()">
           <button class="reorder-btn" onclick="event.stopPropagation();moveItem('habit','${h.id}',-1)">▲</button>
           <button class="reorder-btn" onclick="event.stopPropagation();moveItem('habit','${h.id}',1)">▼</button>
@@ -703,6 +724,7 @@ function renderHabits() {
 }
 
 function toggleHabit(id) {
+  if (!isEditableDay(viewDate)) return;
   const checks = getHabitChecks();
   if (!checks[id]) checks[id] = [];
   const i = checks[id].indexOf(viewDate);
@@ -829,9 +851,13 @@ function renderReviews() {
 
 function renderLearnings() {
   const all = getLearnings().filter(l => l.date === viewDate);
-  const isPast = viewDate < TODAY;
+  const editable = isEditableDay(viewDate);
   document.getElementById('learningProgress').textContent =
     all.length ? `${all.length}개` : '';
+
+  const inp = document.getElementById('learningInput');
+  inp.disabled = !editable;
+  inp.placeholder = editable ? '오늘 배운 내용 기록...' : '지난 기록은 수정할 수 없어요';
 
   const list = document.getElementById('learningList');
   if (!all.length) {
@@ -856,11 +882,13 @@ function renderLearnings() {
 }
 
 function deleteLearning(id) {
+  if (!isEditableDay(viewDate)) return;
   save('learnings', getLearnings().filter(x => x.id !== id));
   renderLearnings();
 }
 
 function addLearning() {
+  if (!isEditableDay(viewDate)) return;
   const inp = document.getElementById('learningInput');
   const val = inp.value.trim(); if (!val) return;
   const all = getLearnings();
@@ -880,6 +908,7 @@ renderAll();
 // ── Reorder ──
 function moveItem(type, id, dir) {
   if (type === 'promise') {
+    if (!isEditableDay(viewDate)) return;
     const arr = getDayPromises(viewDate);
     const i = arr.findIndex(x => x.id === id), j = i + dir;
     if (i < 0 || j < 0 || j >= arr.length) return;
@@ -897,6 +926,7 @@ function moveItem(type, id, dir) {
 
 // ── Item Editing ──
 function editItem(type, id, e) {
+  if ((type === 'promise' || type === 'learning') && !isEditableDay(viewDate)) return;
   const span = e.currentTarget;
   const oldText = span.textContent;
   const input = document.createElement('input');
