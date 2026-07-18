@@ -21,9 +21,6 @@
     --border: #ebebeb;
     --accent: #ff79b0;
     --accent-light: #ffeef6;
-    --green: #5bb98c;
-    --streak: #ff9966;
-    --pin: #f5c542;
   }
   @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
 
@@ -117,7 +114,7 @@
     border-radius: 50%;
     background: transparent;
   }
-  .day-cell.has-activity .day-dot { background: var(--green); }
+  .day-cell.has-activity .day-dot { background: var(--accent); }
   .day-cell.selected .day-dot { background: rgba(255,255,255,0.6); }
 
 
@@ -248,25 +245,25 @@
   /* ── Review ── */
   .review-wrap { max-width: 480px; margin: 14px auto 0; padding: 0 20px; display: flex; flex-direction: column; gap: 10px; }
   .review-card {
-    background: #fff8f0; border: 1px solid #ffdfc0;
+    background: var(--accent-light); border: 1px solid #ffd0e2;
     border-radius: 16px; padding: 16px 18px;
   }
   .review-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
   .review-badge {
-    font-size: 11px; font-weight: 700; color: #ff8c42;
-    background: #fff0e6; padding: 3px 10px; border-radius: 20px;
-    border: 1px solid #ffdfc0;
+    font-size: 11px; font-weight: 700; color: var(--accent);
+    background: #ffe0ee; padding: 3px 10px; border-radius: 20px;
+    border: 1px solid #ffd0e2;
   }
   .review-from { font-size: 11px; color: var(--sub); }
   .review-text { font-size: 14px; color: var(--text); line-height: 1.6; margin-bottom: 12px; }
   .review-done-btn {
     width: 100%; padding: 9px; border-radius: 10px;
-    border: 1px solid #ffdfc0; background: white;
-    color: #ff8c42; font-size: 13px; font-weight: 600;
+    border: 1px solid #ffd0e2; background: white;
+    color: var(--accent); font-size: 13px; font-weight: 600;
     cursor: pointer; font-family: inherit; letter-spacing: -0.05em;
     transition: background 0.15s;
   }
-  .review-done-btn:hover { background: #fff0e6; }
+  .review-done-btn:hover { background: var(--accent-light); }
 
   /* ── Learning ── */
   .learning-item {
@@ -373,13 +370,6 @@
   }
   .auth-btn:active { opacity: 0.85; }
   .auth-msg { font-size: 13px; color: var(--sub); margin-top: 8px; text-align: center; min-height: 20px; }
-  .sync-dot {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: #ccc; display: inline-block; margin-left: 6px;
-    vertical-align: middle; transition: background 0.3s;
-  }
-  .sync-dot.synced { background: var(--accent); }
-  .sync-dot.syncing { background: #f0a500; }
 </style>
 </head>
 <body>
