@@ -228,7 +228,6 @@
   .add-input::placeholder { color: #ccc; }
   .add-input:disabled { color: #ccc; cursor: not-allowed; }
   .mood-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .mood-note:disabled { color: #ccc; cursor: not-allowed; }
 
   /* ── Streak Grid ── */
   .streak-grid-wrap { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 16px 18px; }
@@ -509,6 +508,10 @@ function addDays(ds, n) {
   const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n);
   return toLocalDS(d);
 }
+function fmtDate(ds) {
+  const d = new Date(ds + 'T00:00:00');
+  return `${d.getMonth()+1}월 ${d.getDate()}일`;
+}
 // 주 기준: 월요일 시작 ~ 일요일 끝
 function getMondayOfWeek(ds) {
   const d = new Date(ds + 'T00:00:00');
@@ -614,8 +617,6 @@ function renderMood() {
   });
   const note = document.getElementById('moodNote');
   note.value = mood.note || '';
-  note.disabled = !editable;
-  note.placeholder = editable ? '한 줄 메모...' : '지난 기록은 수정할 수 없어요';
   setTimeout(() => autoResize(note), 0);
 }
 function autoResize(el) {
@@ -624,7 +625,6 @@ function autoResize(el) {
 }
 document.getElementById('moodNote').addEventListener('input', e => {
   autoResize(e.target);
-  if (!isEditableDay(viewDate)) return;
   const mood = getMood(viewDate); mood.note = e.target.value;
   save('mood_' + viewDate, mood);
 });
